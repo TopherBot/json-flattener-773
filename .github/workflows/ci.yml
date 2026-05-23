@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov hypothesis
+
+      - name: Run lint (flake8)
+        run: pip install flake8 && flake8 flattener.py test_flattener.py
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=flattener --cov-report=term-missing
+
+      - name: Enforce coverage ≥ 90%
+        run: |
+          COVERAGE=$(pytest --cov=flattener --cov-report=term-missing | grep TOTAL | awk '{print $4}' | tr -d '%')
+          echo "Coverage is $COVERAGE%"
+          if (( $(echo "$COVERAGE < 90" | bc -l) )); then
+            echo "Coverage below 90% – failing CI"
+            exit 1
+          fi
+
+  installability:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wheel and install in clean env
+        run: |
+          python -m venv .clean && source .clean/bin/activate
+          pip install --upgrade pip
+          pip install .
+          json-flattener -f testdata.json || true  # sanity check, ignore exit code
